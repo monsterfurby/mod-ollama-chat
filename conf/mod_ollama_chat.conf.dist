@@ -126,6 +126,44 @@ OllamaChat.Seed =
 OllamaChat.MaxConcurrentQueries = 0
 
 # --------------------------------------------
+# OPENROUTER API INTEGRATION
+# --------------------------------------------
+
+# OllamaChat.UseOpenRouter
+#     Description: Set to 1 to use OpenRouter as the LLM backend instead of a local Ollama instance.
+#                  When enabled, OllamaChat.Url is ignored and OllamaChat.OpenRouterUrl is used.
+#                  Set OllamaChat.Model to an OpenRouter model slug (e.g. "mistralai/mistral-7b-instruct",
+#                  "openai/gpt-4o-mini", "meta-llama/llama-3.1-8b-instruct:free").
+#                  Free models are available at: https://openrouter.ai/models?q=free
+#     Default:     0 (disabled - use local Ollama)
+OllamaChat.UseOpenRouter = 0
+
+# OllamaChat.OpenRouterApiKey
+#     Description: Your OpenRouter API key. Required when UseOpenRouter = 1.
+#                  Obtain your key at: https://openrouter.ai/keys
+#                  IMPORTANT: Keep this private. Do not commit this file with a real key.
+#     Default:     (empty)
+OllamaChat.OpenRouterApiKey =
+
+# OllamaChat.OpenRouterUrl
+#     Description: The OpenRouter API endpoint. Rarely needs to be changed.
+#     Default:     https://openrouter.ai/api/v1/chat/completions
+OllamaChat.OpenRouterUrl = https://openrouter.ai/api/v1/chat/completions
+
+# NOTE: When UseOpenRouter = 1, the following Ollama-specific options are silently ignored:
+#   OllamaChat.Url, OllamaChat.NumCtx, OllamaChat.NumThreads, OllamaChat.Seed,
+#   OllamaChat.ThinkModeEnableForModule
+#
+# The following options ARE forwarded to OpenRouter with these mappings:
+#   OllamaChat.Model          -> model  (use OpenRouter slugs e.g. "openai/gpt-4o-mini")
+#   OllamaChat.NumPredict     -> max_tokens
+#   OllamaChat.Temperature    -> temperature
+#   OllamaChat.TopP           -> top_p
+#   OllamaChat.RepeatPenalty  -> frequency_penalty (remapped: Ollama 1.0=neutral -> OpenAI 0.0)
+#   OllamaChat.Stop           -> stop (array)
+#   OllamaChat.SystemPrompt   -> messages[0] with role "system"
+
+# --------------------------------------------
 # THINK MODE SUPPORT
 # --------------------------------------------
 
@@ -134,6 +172,7 @@ OllamaChat.MaxConcurrentQueries = 0
 #                  and only the main response will be returned, with all <think> tags and their contents stripped from bot replies.
 #                  Make sure you set OllamaChat.NumPredict = 0 (unlimited) when using Think Mode.
 #                  Certain models that require Think Mode must have this enabled to function properly.
+#                  NOTE: This option is Ollama-only and is ignored when UseOpenRouter = 1.
 #     Default:     0 (false)
 OllamaChat.ThinkModeEnableForModule = 0
 

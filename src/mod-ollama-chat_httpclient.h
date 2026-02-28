@@ -3,24 +3,25 @@
 
 #include <string>
 
-class OllamaHttpClient
-{
+class OllamaHttpClient {
 public:
-    OllamaHttpClient();
-    ~OllamaHttpClient();
+  OllamaHttpClient();
+  ~OllamaHttpClient();
 
-    // Make HTTP POST request to Ollama API
-    std::string Post(const std::string& url, const std::string& jsonData);
-    
-    // Set timeout for requests (in seconds)
-    void SetTimeout(int seconds);
-    
-    // Check if HTTP client is available
-    bool IsAvailable() const;
+  // Make HTTP POST request to Ollama or OpenRouter API
+  // authHeader: optional value for Authorization header (e.g. "Bearer sk-xxx")
+  std::string Post(const std::string &url, const std::string &jsonData,
+                   const std::string &authHeader = "");
+
+  // Set timeout for requests (in seconds)
+  void SetTimeout(int seconds);
+
+  // Check if HTTP client is available
+  bool IsAvailable() const;
 
 private:
-    int m_timeout;
-    bool m_available;
+  int m_timeout;
+  bool m_available;
 };
 
 #endif // OLLAMA_HTTP_CLIENT_H
