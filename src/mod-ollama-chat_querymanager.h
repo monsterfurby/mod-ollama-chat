@@ -6,6 +6,8 @@
 #include <mutex>
 #include <queue>
 #include <thread>
+#include <chrono>
+#include <deque>
 
 std::string QueryOllamaAPI(const std::string& prompt);
 
@@ -27,6 +29,7 @@ private:
     int currentQueries;
     std::mutex mutex_;
     std::queue<QueryTask> taskQueue;
+    std::deque<std::chrono::steady_clock::time_point> openRouterCallTimestamps;
 };
 
 #endif // MOD_OLLAMA_CHAT_QUERYMANAGER_H

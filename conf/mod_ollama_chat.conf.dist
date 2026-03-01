@@ -150,6 +150,17 @@ OllamaChat.OpenRouterApiKey =
 #     Default:     https://openrouter.ai/api/v1/chat/completions
 OllamaChat.OpenRouterUrl = https://openrouter.ai/api/v1/chat/completions
 
+# OllamaChat.OpenRouterMaxCallsPerPeriod
+#     Description: Maximum number of API calls allowed periodically to OpenRouter to prevent excessive costs.
+#                  Set to 0 to disable throttling.
+#     Default:     0
+OllamaChat.OpenRouterMaxCallsPerPeriod = 0
+
+# OllamaChat.OpenRouterPeriodLengthSeconds
+#     Description: The duration of the tracking period in seconds for the OpenRouter rate limiter.
+#     Default:     60 (1 minute)
+OllamaChat.OpenRouterPeriodLengthSeconds = 60
+
 # NOTE: When UseOpenRouter = 1, the following Ollama-specific options are silently ignored:
 #   OllamaChat.Url, OllamaChat.NumCtx, OllamaChat.NumThreads, OllamaChat.Seed,
 #   OllamaChat.ThinkModeEnableForModule
