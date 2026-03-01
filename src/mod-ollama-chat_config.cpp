@@ -57,6 +57,8 @@ std::string g_OllamaSeed = "";
 bool g_UseOpenRouter = false;
 std::string g_OpenRouterApiKey = "";
 std::string g_OpenRouterUrl = "https://openrouter.ai/api/v1/chat/completions";
+uint32_t g_OpenRouterMaxCallsPerPeriod = 0;
+uint32_t g_OpenRouterPeriodLengthSeconds = 60;
 
 // --------------------------------------------
 // Concurrency/Queueing
@@ -437,6 +439,10 @@ void LoadOllamaChatConfig() {
   g_OpenRouterUrl = sConfigMgr->GetOption<std::string>(
       "OllamaChat.OpenRouterUrl",
       "https://openrouter.ai/api/v1/chat/completions");
+  g_OpenRouterMaxCallsPerPeriod =
+      sConfigMgr->GetOption<uint32_t>("OllamaChat.OpenRouterMaxCallsPerPeriod", 0);
+  g_OpenRouterPeriodLengthSeconds =
+      sConfigMgr->GetOption<uint32_t>("OllamaChat.OpenRouterPeriodLengthSeconds", 60);
 
   g_MaxConcurrentQueries =
       sConfigMgr->GetOption<uint32_t>("OllamaChat.MaxConcurrentQueries", 0);

@@ -59,6 +59,8 @@ extern std::string g_OllamaSeed;
 extern bool        g_UseOpenRouter;        // Use OpenRouter instead of local Ollama
 extern std::string g_OpenRouterApiKey;     // OpenRouter API key
 extern std::string g_OpenRouterUrl;        // OpenRouter endpoint URL
+extern uint32_t    g_OpenRouterMaxCallsPerPeriod;
+extern uint32_t    g_OpenRouterPeriodLengthSeconds;
 
 // --------------------------------------------
 // Concurrency/Queueing

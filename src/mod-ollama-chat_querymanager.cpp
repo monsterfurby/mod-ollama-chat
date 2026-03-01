@@ -1,5 +1,6 @@
 #include "mod-ollama-chat_querymanager.h"
-#include "mod-ollama-chat_config.h"  // For g_MaxConcurrentQueries
+#include "mod-ollama-chat_config.h"  // For g_MaxConcurrentQueries and OpenRouter config
+#include "Log.h"
 #include <thread>
 
 // Constructor: initialize with the configuration value.
@@ -23,6 +24,32 @@ std::future<std::string> QueryManager::submitQuery(const std::string& prompt) {
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
+
+        // Handle OpenRouter Rate Limiting
+        if (g_UseOpenRouter && g_OpenRouterMaxCallsPerPeriod > 0) {
+            auto now = std::chrono::steady_clock::now();
+            auto period = std::chrono::seconds(g_OpenRouterPeriodLengthSeconds);
+
+            // Clean up old timestamps outside the tracking window
+            while (!openRouterCallTimestamps.empty() && (now - openRouterCallTimestamps.front()) > period) {
+                openRouterCallTimestamps.pop_front();
+            }
+
+            // Check if we hit the limit
+            if (openRouterCallTimestamps.size() >= g_OpenRouterMaxCallsPerPeriod) {
+                if (g_DebugEnabled) {
+                    LOG_INFO("server.loading", "[Ollama Chat] OpenRouter rate limit exceeded ({} calls per {} seconds). Dropping query.", 
+                             openRouterCallTimestamps.size(), g_OpenRouterPeriodLengthSeconds);
+                }
+                // Rate limit hit: resolve immediately with an empty string rather than querying
+                promise.set_value("");
+                return future;
+            } else {
+                // We're under the limit, record this call
+                openRouterCallTimestamps.push_back(now);
+            }
+        }
+
         if (maxConcurrentQueries == 0 || currentQueries < maxConcurrentQueries) {
             ++currentQueries;
             shouldRunNow = true;
