@@ -9,6 +9,7 @@
 void Addmod_ollama_chatScripts()
 {
     LOG_INFO("server.loading", "[Ollama Chat] Registering mod-ollama-chat scripts.");
+    new OllamaChatWorldScript();
     new OllamaChatConfigWorldScript();
     new PlayerBotChatHandler();
     new OllamaBotRandomChatter();

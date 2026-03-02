@@ -25,6 +25,12 @@ void ProcessBotChatMessage(Player* bot, const std::string& msg, ChatChannelSourc
 
 void SaveBotConversationHistoryToDB();
 
+class OllamaChatWorldScript : public WorldScript {
+public:
+    OllamaChatWorldScript() : WorldScript("OllamaChatWorldScript") {}
+    void OnShutdown() override;
+};
+
 class PlayerBotChatHandler : public PlayerScript
 {
 public:

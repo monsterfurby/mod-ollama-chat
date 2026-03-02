@@ -23,6 +23,7 @@
 #include <cctype>
 #include <chrono>
 #include <ctime>
+#include <atomic>
 #include "DatabaseEnv.h"
 #include "mod-ollama-chat_handler.h"
 #include "mod-ollama-chat_api.h"
@@ -49,10 +50,17 @@
 #include "Map.h"
 #include "GridNotifiers.h"
 
-// Forward declarations for internal helper functions.
 static bool IsBotEligibleForChatChannelLocal(Player* bot, Player* player,
                                              ChatChannelSourceLocal source, Channel* channel = nullptr, Player* receiver = nullptr);
 static std::string GenerateBotPrompt(Player* bot, std::string playerMessage, Player* player);
+
+static std::atomic<bool> g_isShuttingDown(false);
+
+void OllamaChatWorldScript::OnShutdown() {
+    g_isShuttingDown = true;
+    LOG_INFO("server.loading", "[Ollama Chat] Server shutting down, flushing conversation history...");
+    SaveBotConversationHistoryToDB();
+}
 
 // Helper function to format class name for any player
 static std::string FormatPlayerClass(uint8_t classId)
@@ -315,39 +323,39 @@ void SaveBotConversationHistoryToDB()
                         std::string playerName = playerPtr->GetName();
                         std::string botName = botPtr->GetName();
                         
-                        std::thread([botGuid, playerGuid, playerName, botName, fullConversationForSummary]() {
-                            try {
-                                std::string prompt = "Summarize the following recent conversation between the player (" + playerName + ") and you, the character (" + botName + "). "
+                        std::string prompt = "Summarize the following recent conversation between the player (" + playerName + ") and you, the character (" + botName + "). "
                                     "Focus on key events, promises made, or shared experiences. Keep it concise but detailed enough to remember the context next time you meet.\n\n"
                                     "Conversation:\n" + fullConversationForSummary + "\n\n"
                                     "Memory Summary:";
                                 
-                                // Submit summary generation with bypassOpenRouterThrottle = true
-                                auto responseFuture = SubmitQuery(prompt, true);
-                                if (responseFuture.valid()) {
-                                    std::string summary = responseFuture.get();
-                                    if (!summary.empty()) {
-                                        std::string memoryId = "memory_" + std::to_string(botGuid) + "_" + std::to_string(playerGuid) + "_" + std::to_string(time(nullptr));
-                                        std::string title = "Interaction with " + playerName;
-                                        std::vector<std::string> keywords = {playerName, "Interaction", "Memory"};
-                                        std::vector<std::string> tags = {"memory", "player_interaction"};
-                                        
-                                        if (g_RAGSystem) {
-                                            g_RAGSystem->SaveNewRAGEntry(memoryId, title, summary, keywords, tags);
-                                        }
-                                        
-                                        if (g_DebugEnabled) {
-                                            LOG_INFO("server.loading", "[Ollama Chat] Saved memory summary for Bot {} and Player {}", botName, playerName);
-                                        }
+                        // Submit summary generation with bypassOpenRouterThrottle = true
+                        // This returns immediately but runs in the QueryManager's thread pool
+                        SubmitQuery(prompt, true).then([botGuid, playerGuid, playerName, botName](std::future<std::string> fut) {
+                            try {
+                                if (g_isShuttingDown) return;
+                                
+                                std::string summary = fut.get();
+                                if (!summary.empty()) {
+                                    std::string memoryId = "memory_" + std::to_string(botGuid) + "_" + std::to_string(playerGuid) + "_" + std::to_string(time(nullptr));
+                                    std::string title = "Interaction with " + playerName;
+                                    std::vector<std::string> keywords = {playerName, "Interaction", "Memory"};
+                                    std::vector<std::string> tags = {"memory", "player_interaction"};
+                                    
+                                    if (g_RAGSystem) {
+                                        g_RAGSystem->SaveNewRAGEntry(memoryId, title, summary, keywords, tags);
+                                    }
+                                    
+                                    if (g_DebugEnabled) {
+                                        LOG_INFO("server.loading", "[Ollama Chat] Saved memory summary for Bot {} and Player {}", botName, playerName);
                                     }
                                 }
                             }
                             catch (const std::exception& ex) {
                                 if (g_DebugEnabled) {
-                                    LOG_ERROR("server.loading", "[Ollama Chat] Exception in memory summarization thread: {}", ex.what());
+                                    LOG_ERROR("server.loading", "[Ollama Chat] Exception in memory summarization callback: {}", ex.what());
                                 }
                             }
-                        }).detach();
+                        });
                     }
                 }
             }

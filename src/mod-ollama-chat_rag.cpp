@@ -16,12 +16,14 @@ OllamaRAGSystem::~OllamaRAGSystem() {}
 
 bool OllamaRAGSystem::Initialize()
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (m_initialized) {
         return true;
     }
 
     m_ragEntries.clear();
     m_vocabulary.clear();
+    m_vocabSet.clear();
 
     // Use the configured RAG data path directly
     std::string fullPath = g_RAGDataPath;
@@ -32,20 +34,19 @@ bool OllamaRAGSystem::Initialize()
     }
 
     // Build vocabulary from all entries
-    std::unordered_set<std::string> vocabSet;
     for (const auto& entry : m_ragEntries) {
         auto tokens = TokenizeText(PreprocessText(entry.title + " " + entry.content));
         for (const auto& token : tokens) {
-            vocabSet.insert(token);
+            m_vocabSet.insert(token);
         }
         for (const auto& keyword : entry.keywords) {
             auto keywordTokens = TokenizeText(PreprocessText(keyword));
             for (const auto& token : keywordTokens) {
-                vocabSet.insert(token);
+                m_vocabSet.insert(token);
             }
         }
     }
-    m_vocabulary.assign(vocabSet.begin(), vocabSet.end());
+    m_vocabulary.assign(m_vocabSet.begin(), m_vocabSet.end());
 
     m_initialized = true;
     LOG_INFO("server.loading", "[Ollama Chat RAG] Initialized with {} entries and {} vocabulary terms",
@@ -172,6 +173,7 @@ bool OllamaRAGSystem::SaveNewRAGEntry(const std::string& id, const std::string& 
         
         // Update in-memory structures if already initialized
         if (m_initialized) {
+            std::lock_guard<std::mutex> lock(m_mutex);
             RAGEntry newEntry;
             newEntry.id = id;
             newEntry.title = title;
@@ -185,17 +187,17 @@ bool OllamaRAGSystem::SaveNewRAGEntry(const std::string& id, const std::string& 
                 
             m_ragEntries.push_back(newEntry);
             
-            // Rebuild vocabulary (simple append - not perfect but avoids full rebuild for single add)
+            // Rebuild vocabulary (simple append - O(1) with unordered_set)
             auto tokens = TokenizeText(PreprocessText(title + " " + content));
             for (const auto& token : tokens) {
-                if (std::find(m_vocabulary.begin(), m_vocabulary.end(), token) == m_vocabulary.end()) {
+                if (m_vocabSet.insert(token).second) {
                     m_vocabulary.push_back(token);
                 }
             }
             for (const auto& keyword : keywords) {
                 auto keywordTokens = TokenizeText(PreprocessText(keyword));
                 for (const auto& token : keywordTokens) {
-                    if (std::find(m_vocabulary.begin(), m_vocabulary.end(), token) == m_vocabulary.end()) {
+                    if (m_vocabSet.insert(token).second) {
                         m_vocabulary.push_back(token);
                     }
                 }
@@ -212,6 +214,7 @@ bool OllamaRAGSystem::SaveNewRAGEntry(const std::string& id, const std::string& 
 
 std::vector<RAGResult> OllamaRAGSystem::RetrieveRelevantInfo(const std::string& query, uint32_t maxResults, float similarityThreshold)
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     std::vector<RAGResult> results;
 
     if (!m_initialized || query.empty()) {

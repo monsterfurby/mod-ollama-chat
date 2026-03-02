@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
+#include <mutex>
 #include <nlohmann/json.hpp>
 
 struct RAGEntry {
@@ -61,7 +63,9 @@ private:
 private:
     std::vector<RAGEntry> m_ragEntries;
     std::vector<std::string> m_vocabulary;
+    std::unordered_set<std::string> m_vocabSet; // For O(1) lookups
     bool m_initialized;
+    mutable std::mutex m_mutex;
 };
 
 #endif // MOD_OLLAMA_CHAT_RAG_H
