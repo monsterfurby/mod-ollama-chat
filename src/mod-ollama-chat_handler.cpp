@@ -267,6 +267,9 @@ void SaveBotConversationHistoryToDB()
 
     for (const auto& [botGuid, playerMap] : g_BotConversationHistory) {
         for (const auto& [playerGuid, history] : playerMap) {
+            std::string fullConversationForSummary = "";
+            bool shouldSummarize = false;
+            
             for (const auto& pair : history) {
                 const std::string& playerMessage = pair.first;
                 const std::string& botReply = pair.second;
@@ -281,6 +284,72 @@ void SaveBotConversationHistoryToDB()
                     "INSERT IGNORE INTO mod_ollama_chat_history (bot_guid, player_guid, timestamp, player_message, bot_reply) "
                     "VALUES ({}, {}, NOW(), '{}', '{}')",
                     botGuid, playerGuid, escPlayerMsg, escBotReply));
+                    
+                fullConversationForSummary += "Player: " + playerMessage + "\nBot: " + botReply + "\n";
+            }
+            
+            if (history.size() > 0) {
+                shouldSummarize = true;
+            }
+            
+            if (shouldSummarize && g_EnableRAG) {
+                // Determine if this is an "important" relationship
+                Player* botPtr = ObjectAccessor::FindPlayer(ObjectGuid(botGuid));
+                Player* playerPtr = ObjectAccessor::FindPlayer(ObjectGuid(playerGuid));
+                
+                if (botPtr && playerPtr) {
+                    bool isImportant = false;
+                    
+                    // Check Friendslist
+                    PlayerSocial* social = playerPtr->GetSocial();
+                    if (social && social->HasFriend(botGuid)) {
+                        isImportant = true;
+                    }
+                    
+                    // Check Guild
+                    if (!isImportant && playerPtr->GetGuildId() != 0 && botPtr->GetGuildId() == playerPtr->GetGuildId()) {
+                        isImportant = true;
+                    }
+                    
+                    if (isImportant) {
+                        std::string playerName = playerPtr->GetName();
+                        std::string botName = botPtr->GetName();
+                        
+                        std::thread([botGuid, playerGuid, playerName, botName, fullConversationForSummary]() {
+                            try {
+                                std::string prompt = "Summarize the following recent conversation between the player (" + playerName + ") and you, the character (" + botName + "). "
+                                    "Focus on key events, promises made, or shared experiences. Keep it concise but detailed enough to remember the context next time you meet.\n\n"
+                                    "Conversation:\n" + fullConversationForSummary + "\n\n"
+                                    "Memory Summary:";
+                                
+                                // Submit summary generation with bypassOpenRouterThrottle = true
+                                auto responseFuture = SubmitQuery(prompt, true);
+                                if (responseFuture.valid()) {
+                                    std::string summary = responseFuture.get();
+                                    if (!summary.empty()) {
+                                        std::string memoryId = "memory_" + std::to_string(botGuid) + "_" + std::to_string(playerGuid) + "_" + std::to_string(time(nullptr));
+                                        std::string title = "Interaction with " + playerName;
+                                        std::vector<std::string> keywords = {playerName, "Interaction", "Memory"};
+                                        std::vector<std::string> tags = {"memory", "player_interaction"};
+                                        
+                                        if (g_RAGSystem) {
+                                            g_RAGSystem->SaveNewRAGEntry(memoryId, title, summary, keywords, tags);
+                                        }
+                                        
+                                        if (g_DebugEnabled) {
+                                            LOG_INFO("server.loading", "[Ollama Chat] Saved memory summary for Bot {} and Player {}", botName, playerName);
+                                        }
+                                    }
+                                }
+                            }
+                            catch (const std::exception& ex) {
+                                if (g_DebugEnabled) {
+                                    LOG_ERROR("server.loading", "[Ollama Chat] Exception in memory summarization thread: {}", ex.what());
+                                }
+                            }
+                        }).detach();
+                    }
+                }
             }
         }
     }
@@ -1336,18 +1405,55 @@ void PlayerBotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32
                     }
                     continue;
                 }
+                
+                // Determine bypass throttle based on Group, Guild, and Friendslist
+                bool bypassThrottle = false;
+                
+                // Check Group
+                Group* group = player->GetGroup();
+                if (group && group->IsMember(bot->GetGUID())) {
+                    bypassThrottle = true;
+                }
+                
+                // Check Guild (make sure the guild has at least one real player)
+                if (!bypassThrottle && player->GetGuildId() != 0 && bot->GetGuildId() == player->GetGuildId()) {
+                    // Similar logic used elsewhere: ensure guild has a real player
+                    bool hasRealPlayerInGuild = false;
+                    for (auto const& guildPlayerItr : ObjectAccessor::GetPlayers()) {
+                        Player* guildMember = guildPlayerItr.second;
+                        if (guildMember && guildMember->GetGuildId() == player->GetGuildId()) {
+                            PlayerbotAI* memberAI = PlayerbotsMgr::instance().GetPlayerbotAI(guildMember);
+                            if (!memberAI || !memberAI->IsBotAI()) {
+                                hasRealPlayerInGuild = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (hasRealPlayerInGuild) {
+                        bypassThrottle = true;
+                    }
+                }
+                
+                // Check Friendslist
+                if (!bypassThrottle) {
+                    PlayerSocial* social = player->GetSocial();
+                    if (social && social->HasFriend(bot->GetGUID().GetRawValue())) {
+                        bypassThrottle = true;
+                    }
+                }
+
                 uint32_t roll = urand(0, 99);
-                if (roll < chance)
+                if (bypassThrottle || roll < chance)
                 {
                     finalCandidates.push_back(bot);
                     if(g_DebugEnabled)
                     {
-                        LOG_INFO("server.loading", "[Ollama Chat] Bot {} PASSED chance roll ({} < {}%)", bot->GetName(), roll, chance);
+                        LOG_INFO("server.loading", "[Ollama Chat] Bot {} PASSED chance roll (bypassThrottle={}, roll={}, chance={}%)", bot->GetName(), bypassThrottle, roll, chance);
                     }
                 }
                 else if(g_DebugEnabled)
                 {
-                    LOG_INFO("server.loading", "[Ollama Chat] Bot {} FAILED chance roll ({} >= {}%)", bot->GetName(), roll, chance);
+                    LOG_INFO("server.loading", "[Ollama Chat] Bot {} FAILED chance roll (bypassThrottle={}, {} >= {}%)", bot->GetName(), bypassThrottle, roll, chance);
                 }
             }
         }
@@ -1411,10 +1517,30 @@ void PlayerBotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32
         std::string prompt = GenerateBotPrompt(bot, msg, player);
         uint64_t botGuid = bot->GetGUID().GetRawValue();
         
-        std::thread([botGuid, senderGuid, prompt, sourceLocal, channelId = (channel ? channel->GetChannelId() : 0), channelName = (channel ? channel->GetName() : ""), msg]() {
+        // Determine bypass throttle again for the chosen bot (since it's a separate loop)
+        bool bypassThrottle = false;
+        Group* group = player->GetGroup();
+        if (group && group->IsMember(bot->GetGUID())) { bypassThrottle = true; }
+        if (!bypassThrottle && player->GetGuildId() != 0 && bot->GetGuildId() == player->GetGuildId()) {
+            bool hasRealPlayerInGuild = false;
+            for (auto const& guildPlayerItr : ObjectAccessor::GetPlayers()) {
+                Player* guildMember = guildPlayerItr.second;
+                if (guildMember && guildMember->GetGuildId() == player->GetGuildId()) {
+                    PlayerbotAI* memberAI = PlayerbotsMgr::instance().GetPlayerbotAI(guildMember);
+                    if (!memberAI || !memberAI->IsBotAI()) { hasRealPlayerInGuild = true; break; }
+                }
+            }
+            if (hasRealPlayerInGuild) { bypassThrottle = true; }
+        }
+        if (!bypassThrottle) {
+            PlayerSocial* social = player->GetSocial();
+            if (social && social->HasFriend(bot->GetGUID().GetRawValue())) { bypassThrottle = true; }
+        }
+
+        std::thread([botGuid, senderGuid, prompt, bypassThrottle, sourceLocal, channelId = (channel ? channel->GetChannelId() : 0), channelName = (channel ? channel->GetName() : ""), msg]() {
             try {
                 // Use the QueryManager to submit the query.
-                auto responseFuture = SubmitQuery(prompt);
+                auto responseFuture = SubmitQuery(prompt, bypassThrottle);
                 if (!responseFuture.valid())
                 {
                     return;

@@ -15,7 +15,7 @@ class QueryManager {
 public:
     QueryManager();
     void setMaxConcurrentQueries(int maxQueries);
-    std::future<std::string> submitQuery(const std::string& prompt);
+    std::future<std::string> submitQuery(const std::string& prompt, bool bypassOpenRouterThrottle = false);
 
 private:
     struct QueryTask {

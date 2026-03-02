@@ -16,7 +16,7 @@ void QueryManager::setMaxConcurrentQueries(int maxQueries) {
 }
 
 // Submit a query and return a future for the result.
-std::future<std::string> QueryManager::submitQuery(const std::string& prompt) {
+std::future<std::string> QueryManager::submitQuery(const std::string& prompt, bool bypassOpenRouterThrottle) {
     std::promise<std::string> promise;
     std::future<std::string> future = promise.get_future();
 
@@ -36,7 +36,7 @@ std::future<std::string> QueryManager::submitQuery(const std::string& prompt) {
             }
 
             // Check if we hit the limit
-            if (openRouterCallTimestamps.size() >= g_OpenRouterMaxCallsPerPeriod) {
+            if (!bypassOpenRouterThrottle && openRouterCallTimestamps.size() >= g_OpenRouterMaxCallsPerPeriod) {
                 if (g_DebugEnabled) {
                     LOG_INFO("server.loading", "[Ollama Chat] OpenRouter rate limit exceeded ({} calls per {} seconds). Dropping query.", 
                              openRouterCallTimestamps.size(), g_OpenRouterPeriodLengthSeconds);
@@ -44,8 +44,8 @@ std::future<std::string> QueryManager::submitQuery(const std::string& prompt) {
                 // Rate limit hit: resolve immediately with an empty string rather than querying
                 promise.set_value("");
                 return future;
-            } else {
-                // We're under the limit, record this call
+            } else if (!bypassOpenRouterThrottle) {
+                // We're under the limit and not bypassing, record this call
                 openRouterCallTimestamps.push_back(now);
             }
         }

@@ -368,6 +368,6 @@ bool IsValidAPIResponse(const std::string &response) {
 QueryManager g_queryManager;
 
 // Interface function to submit a query.
-std::future<std::string> SubmitQuery(const std::string &prompt) {
-  return g_queryManager.submitQuery(prompt);
+std::future<std::string> SubmitQuery(const std::string &prompt, bool bypassOpenRouterThrottle) {
+  return g_queryManager.submitQuery(prompt, bypassOpenRouterThrottle);
 }

@@ -146,6 +146,70 @@ bool OllamaRAGSystem::LoadRAGDataFromFile(const std::string& filePath)
     }
 }
 
+bool OllamaRAGSystem::SaveNewRAGEntry(const std::string& id, const std::string& title, const std::string& content, const std::vector<std::string>& keywords, const std::vector<std::string>& tags)
+{
+    try {
+        std::string filename = std::string(g_RAGDataPath) + "/" + id + ".json";
+        
+        nlohmann::json entryJson;
+        entryJson["id"] = id;
+        entryJson["title"] = title;
+        entryJson["content"] = content;
+        entryJson["keywords"] = keywords;
+        entryJson["tags"] = tags;
+        
+        nlohmann::json arrayJson = nlohmann::json::array();
+        arrayJson.push_back(entryJson);
+        
+        std::ofstream file(filename);
+        if (!file.is_open()) {
+            LOG_ERROR("server.loading", "[Ollama Chat RAG] Cannot open file for writing: {}", filename);
+            return false;
+        }
+        
+        file << arrayJson.dump(4);
+        file.close();
+        
+        // Update in-memory structures if already initialized
+        if (m_initialized) {
+            RAGEntry newEntry;
+            newEntry.id = id;
+            newEntry.title = title;
+            newEntry.content = content;
+            newEntry.keywords = keywords;
+            newEntry.tags = tags;
+            
+            // Remove existing entry with same ID if it exists
+            m_ragEntries.erase(std::remove_if(m_ragEntries.begin(), m_ragEntries.end(),
+                [&id](const RAGEntry& e) { return e.id == id; }), m_ragEntries.end());
+                
+            m_ragEntries.push_back(newEntry);
+            
+            // Rebuild vocabulary (simple append - not perfect but avoids full rebuild for single add)
+            auto tokens = TokenizeText(PreprocessText(title + " " + content));
+            for (const auto& token : tokens) {
+                if (std::find(m_vocabulary.begin(), m_vocabulary.end(), token) == m_vocabulary.end()) {
+                    m_vocabulary.push_back(token);
+                }
+            }
+            for (const auto& keyword : keywords) {
+                auto keywordTokens = TokenizeText(PreprocessText(keyword));
+                for (const auto& token : keywordTokens) {
+                    if (std::find(m_vocabulary.begin(), m_vocabulary.end(), token) == m_vocabulary.end()) {
+                        m_vocabulary.push_back(token);
+                    }
+                }
+            }
+        }
+        
+        return true;
+    }
+    catch (const std::exception& e) {
+        LOG_ERROR("server.loading", "[Ollama Chat RAG] Error saving RAG entry: {}", e.what());
+        return false;
+    }
+}
+
 std::vector<RAGResult> OllamaRAGSystem::RetrieveRelevantInfo(const std::string& query, uint32_t maxResults, float similarityThreshold)
 {
     std::vector<RAGResult> results;

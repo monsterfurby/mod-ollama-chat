@@ -33,6 +33,9 @@ public:
     // Get formatted RAG information for prompt inclusion
     std::string GetFormattedRAGInfo(const std::vector<RAGResult>& results);
 
+    // Save a new RAG entry to a file and update the index
+    bool SaveNewRAGEntry(const std::string& id, const std::string& title, const std::string& content, const std::vector<std::string>& keywords = {}, const std::vector<std::string>& tags = {});
+
 private:
     // Load RAG data from JSON files in the specified directory
     bool LoadRAGDataFromDirectory(const std::string& directoryPath);

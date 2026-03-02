@@ -11,7 +11,7 @@ std::string QueryOllamaAPI(const std::string& prompt);
 bool IsValidAPIResponse(const std::string& response);
 
 // Submits a query to the API.
-std::future<std::string> SubmitQuery(const std::string& prompt);
+std::future<std::string> SubmitQuery(const std::string& prompt, bool bypassOpenRouterThrottle = false);
 
 // Declare the global QueryManager variable.
 extern QueryManager g_queryManager;
