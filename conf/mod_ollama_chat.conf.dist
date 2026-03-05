@@ -324,6 +324,32 @@ OllamaChat.RandomChatterBotCommentChance = 5
 #     Default:     2
 OllamaChat.RandomChatterMaxBotsPerPlayer = 2
 
+# OllamaChat.PartyRandomChatterCooldown
+#     Description: Minimum seconds between random chatter messages within the same party/raid group.
+#                  After one bot chatters in party, the entire group is put on cooldown for this duration.
+#                  Set to 0 to disable group-level cooldown (each bot still has its own per-bot cooldown).
+#     Default:     120
+OllamaChat.PartyRandomChatterCooldown = 120
+
+# OllamaChat.PartyRandomChatterChance
+#     Description: The percent chance (0-100) that a bot in a party/raid will add idle chatter when random chatter triggers.
+#                  This overrides RandomChatterBotCommentChance for bots that are in a group.
+#                  Lower values reduce party spam while keeping solo/world chatter unchanged.
+#     Default:     3
+OllamaChat.PartyRandomChatterChance = 3
+
+# OllamaChat.PartyMinRandomInterval
+#     Description: The minimum time (in seconds) between random lines from a bot that is in a party/raid.
+#                  Overrides MinRandomInterval for grouped bots.
+#     Default:     120
+OllamaChat.PartyMinRandomInterval = 120
+
+# OllamaChat.PartyMaxRandomInterval
+#     Description: The maximum time (in seconds) between random lines from a bot that is in a party/raid.
+#                  Overrides MaxRandomInterval for grouped bots.
+#     Default:     300
+OllamaChat.PartyMaxRandomInterval = 300
+
 # OllamaChat.RandomChatterPromptTemplate
 #   Description: The template string for random bot chatter prompts.
 #   Placeholders (named): {bot_name} {bot_level} {bot_class} {bot_race} {bot_gender} {bot_role} {bot_faction} {bot_area} {bot_zone} {bot_map} {bot_personality} {bot_personality_name} {bot_background} {environment_info}

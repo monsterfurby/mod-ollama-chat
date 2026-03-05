@@ -85,6 +85,10 @@ extern bool        g_DebugShowFullPrompt;
 // --------------------------------------------
 extern uint32_t    g_MinRandomInterval;
 extern uint32_t    g_MaxRandomInterval;
+extern uint32_t    g_PartyRandomChatterCooldown;
+extern uint32_t    g_PartyRandomChatterChance;
+extern uint32_t    g_PartyMinRandomInterval;
+extern uint32_t    g_PartyMaxRandomInterval;
 
 // --------------------------------------------
 // Conversation History Settings

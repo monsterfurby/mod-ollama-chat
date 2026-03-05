@@ -91,6 +91,10 @@ bool g_ThinkModeEnableForModule = false;
 // --------------------------------------------
 uint32_t g_MinRandomInterval = 45;
 uint32_t g_MaxRandomInterval = 180;
+uint32_t g_PartyRandomChatterCooldown = 120;
+uint32_t g_PartyRandomChatterChance = 3;
+uint32_t g_PartyMinRandomInterval = 120;
+uint32_t g_PartyMaxRandomInterval = 300;
 
 // --------------------------------------------
 // Conversation History Settings
@@ -492,6 +496,14 @@ void LoadOllamaChatConfig() {
       "OllamaChat.RandomChatterBotCommentChance", 25);
   g_RandomChatterMaxBotsPerPlayer = sConfigMgr->GetOption<uint32_t>(
       "OllamaChat.RandomChatterMaxBotsPerPlayer", 2);
+  g_PartyRandomChatterCooldown = sConfigMgr->GetOption<uint32_t>(
+      "OllamaChat.PartyRandomChatterCooldown", 120);
+  g_PartyRandomChatterChance = sConfigMgr->GetOption<uint32_t>(
+      "OllamaChat.PartyRandomChatterChance", 3);
+  g_PartyMinRandomInterval = sConfigMgr->GetOption<uint32_t>(
+      "OllamaChat.PartyMinRandomInterval", 120);
+  g_PartyMaxRandomInterval = sConfigMgr->GetOption<uint32_t>(
+      "OllamaChat.PartyMaxRandomInterval", 300);
 
   g_EnableGuildRandomAmbientChatter = sConfigMgr->GetOption<bool>(
       "OllamaChat.EnableGuildRandomAmbientChatter", true);
