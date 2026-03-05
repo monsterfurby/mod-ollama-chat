@@ -146,14 +146,14 @@ void OllamaBotRandomChatter::HandleRandomChatter()
 
             if (inGroup && g_PartyRandomChatterCooldown > 0)
             {
-                uint32_t groupId = bot->GetGroup()->GetId();
+                uint32_t groupId = bot->GetGroup()->GetGUID().GetCounter();
                 if (groupRandomChatCooldown.count(groupId) && now < groupRandomChatCooldown[groupId])
                     continue;
             }
 
             if (inGroup && g_RandomChatterMaxBotsPerPlayer > 0)
             {
-                uint32_t groupId = bot->GetGroup()->GetId();
+                uint32_t groupId = bot->GetGroup()->GetGUID().GetCounter();
                 if (botsChatteredPerGroup[groupId] >= g_RandomChatterMaxBotsPerPlayer)
                     continue;
             }
@@ -973,7 +973,7 @@ void OllamaBotRandomChatter::HandleRandomChatter()
 
             if (inGroup)
             {
-                uint32_t groupId = bot->GetGroup()->GetId();
+                uint32_t groupId = bot->GetGroup()->GetGUID().GetCounter();
                 if (g_PartyRandomChatterCooldown > 0)
                     groupRandomChatCooldown[groupId] = now + g_PartyRandomChatterCooldown;
                 botsChatteredPerGroup[groupId]++;
