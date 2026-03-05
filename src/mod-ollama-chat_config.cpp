@@ -168,6 +168,7 @@ std::string g_RAGDataPath = "rag/";
 uint32_t g_RAGMaxRetrievedItems = 3;
 float g_RAGSimilarityThreshold = 0.3f;
 std::string g_RAGPromptTemplate;
+uint32_t g_RAGMaxVocabularySize = 10000;
 
 class OllamaRAGSystem;
 OllamaRAGSystem *g_RAGSystem = nullptr;
@@ -584,6 +585,8 @@ void LoadOllamaChatConfig() {
       "OllamaChat.RAGPromptTemplate",
       "RELEVANT INFORMATION:\n{rag_info}\nUse this information to provide "
       "accurate and detailed responses when applicable.");
+  g_RAGMaxVocabularySize =
+      sConfigMgr->GetOption<uint32_t>("OllamaChat.RAGMaxVocabularySize", 10000);
 
   g_ThinkModeEnableForModule =
       sConfigMgr->GetOption<bool>("OllamaChat.ThinkModeEnableForModule", false);

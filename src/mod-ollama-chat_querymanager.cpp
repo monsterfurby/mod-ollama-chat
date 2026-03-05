@@ -15,8 +15,36 @@ void QueryManager::setMaxConcurrentQueries(int maxQueries) {
     maxConcurrentQueries = maxQueries;
 }
 
+// Shutdown: set the cancellation flag and drain all pending tasks.
+void QueryManager::Shutdown() {
+    shuttingDown_ = true;
+    
+    std::lock_guard<std::mutex> lock(mutex_);
+    // Drain the task queue, resolving all pending promises with empty strings
+    while (!taskQueue.empty()) {
+        QueryTask task = std::move(taskQueue.front());
+        taskQueue.pop();
+        try {
+            task.promise.set_value("");
+        } catch (...) {
+            // Promise may already have been satisfied
+        }
+    }
+    
+    if (g_DebugEnabled) {
+        LOG_INFO("server.loading", "[Ollama Chat] QueryManager shutdown complete, {} queries still in-flight", currentQueries);
+    }
+}
+
 // Submit a query and return a future for the result.
 std::future<std::string> QueryManager::submitQuery(const std::string& prompt, bool bypassOpenRouterThrottle) {
+    // Early exit if shutting down
+    if (shuttingDown_) {
+        std::promise<std::string> promise;
+        promise.set_value("");
+        return promise.get_future();
+    }
+    
     std::promise<std::string> promise;
     std::future<std::string> future = promise.get_future();
 
@@ -35,7 +63,7 @@ std::future<std::string> QueryManager::submitQuery(const std::string& prompt, bo
                 openRouterCallTimestamps.pop_front();
             }
 
-            // Check if we hit the limit
+            // Check if we hit the limit (bypassed calls still check, but aren't blocked)
             if (!bypassOpenRouterThrottle && openRouterCallTimestamps.size() >= g_OpenRouterMaxCallsPerPeriod) {
                 if (g_DebugEnabled) {
                     LOG_INFO("server.loading", "[Ollama Chat] OpenRouter rate limit exceeded ({} calls per {} seconds). Dropping query.", 
@@ -44,10 +72,11 @@ std::future<std::string> QueryManager::submitQuery(const std::string& prompt, bo
                 // Rate limit hit: resolve immediately with an empty string rather than querying
                 promise.set_value("");
                 return future;
-            } else if (!bypassOpenRouterThrottle) {
-                // We're under the limit and not bypassing, record this call
-                openRouterCallTimestamps.push_back(now);
             }
+            
+            // Always record the call timestamp for accurate window tracking,
+            // regardless of bypass status
+            openRouterCallTimestamps.push_back(now);
         }
 
         if (maxConcurrentQueries == 0 || currentQueries < maxConcurrentQueries) {
@@ -73,7 +102,9 @@ void QueryManager::processQuery(const std::string& prompt, std::promise<std::str
     {
         std::lock_guard<std::mutex> lock(mutex_);
         --currentQueries;
-        if (!taskQueue.empty() && (maxConcurrentQueries == 0 || currentQueries < maxConcurrentQueries)) {
+        
+        // Don't dequeue new work if shutting down
+        if (!shuttingDown_ && !taskQueue.empty() && (maxConcurrentQueries == 0 || currentQueries < maxConcurrentQueries)) {
             QueryTask task = std::move(taskQueue.front());
             taskQueue.pop();
             ++currentQueries;
@@ -81,3 +112,4 @@ void QueryManager::processQuery(const std::string& prompt, std::promise<std::str
         }
     }
 }
+

@@ -58,7 +58,9 @@ static std::atomic<bool> g_isShuttingDown(false);
 
 void OllamaChatWorldScript::OnShutdown() {
     g_isShuttingDown = true;
-    LOG_INFO("server.loading", "[Ollama Chat] Server shutting down, flushing conversation history...");
+    LOG_INFO("server.loading", "[Ollama Chat] Server shutting down...");
+    g_queryManager.Shutdown();
+    LOG_INFO("server.loading", "[Ollama Chat] Flushing conversation history...");
     SaveBotConversationHistoryToDB();
 }
 
@@ -269,94 +271,113 @@ void AppendBotConversation(uint64_t botGuid, uint64_t playerGuid, const std::str
 
 }
 
+// Structure to hold data extracted from conversation history under lock
+struct ConversationSaveData {
+    uint64_t botGuid;
+    uint64_t playerGuid;
+    std::deque<std::pair<std::string, std::string>> history;
+};
+
 void SaveBotConversationHistoryToDB()
 {
-    std::lock_guard<std::mutex> lock(g_ConversationHistoryMutex);
-
-    for (const auto& [botGuid, playerMap] : g_BotConversationHistory) {
-        for (const auto& [playerGuid, history] : playerMap) {
-            std::string fullConversationForSummary = "";
-            bool shouldSummarize = false;
-            
-            for (const auto& pair : history) {
-                const std::string& playerMessage = pair.first;
-                const std::string& botReply = pair.second;
-
-                std::string escPlayerMsg = playerMessage;
-                CharacterDatabase.EscapeString(escPlayerMsg);
-
-                std::string escBotReply = botReply;
-                CharacterDatabase.EscapeString(escBotReply);
-
-                CharacterDatabase.Execute(SafeFormat(
-                    "INSERT IGNORE INTO mod_ollama_chat_history (bot_guid, player_guid, timestamp, player_message, bot_reply) "
-                    "VALUES ({}, {}, NOW(), '{}', '{}')",
-                    botGuid, playerGuid, escPlayerMsg, escBotReply));
-                    
-                fullConversationForSummary += "Player: " + playerMessage + "\nBot: " + botReply + "\n";
+    // Step 1: Copy data under lock, then release
+    std::vector<ConversationSaveData> allData;
+    {
+        std::lock_guard<std::mutex> lock(g_ConversationHistoryMutex);
+        for (const auto& [botGuid, playerMap] : g_BotConversationHistory) {
+            for (const auto& [playerGuid, history] : playerMap) {
+                if (!history.empty()) {
+                    allData.push_back({botGuid, playerGuid, history});
+                }
             }
-            
-            if (history.size() > 0) {
-                shouldSummarize = true;
-            }
-            
-            if (shouldSummarize && g_EnableRAG) {
-                // Determine if this is an "important" relationship
-                Player* botPtr = ObjectAccessor::FindPlayer(ObjectGuid(botGuid));
-                Player* playerPtr = ObjectAccessor::FindPlayer(ObjectGuid(playerGuid));
+        }
+    }
+    // Mutex is now released — safe to do player lookups and DB/API calls
+
+    for (const auto& data : allData) {
+        std::string fullConversationForSummary;
+        
+        for (const auto& pair : data.history) {
+            const std::string& playerMessage = pair.first;
+            const std::string& botReply = pair.second;
+
+            std::string escPlayerMsg = playerMessage;
+            CharacterDatabase.EscapeString(escPlayerMsg);
+
+            std::string escBotReply = botReply;
+            CharacterDatabase.EscapeString(escBotReply);
+
+            CharacterDatabase.Execute(SafeFormat(
+                "INSERT IGNORE INTO mod_ollama_chat_history (bot_guid, player_guid, timestamp, player_message, bot_reply) "
+                "VALUES ({}, {}, NOW(), '{}', '{}')",
+                data.botGuid, data.playerGuid, escPlayerMsg, escBotReply));
                 
-                if (botPtr && playerPtr) {
-                    bool isImportant = false;
+            fullConversationForSummary += "Player: " + playerMessage + "\nBot: " + botReply + "\n";
+        }
+        
+        if (g_EnableRAG) {
+            // Determine if this is an "important" relationship
+            // Player lookups are now outside the conversation mutex
+            Player* botPtr = ObjectAccessor::FindPlayer(ObjectGuid(data.botGuid));
+            Player* playerPtr = ObjectAccessor::FindPlayer(ObjectGuid(data.playerGuid));
+            
+            if (botPtr && playerPtr) {
+                bool isImportant = false;
+                
+                // Check Friendslist
+                PlayerSocial* social = playerPtr->GetSocial();
+                if (social && social->HasFriend(data.botGuid)) {
+                    isImportant = true;
+                }
+                
+                // Check Guild
+                if (!isImportant && playerPtr->GetGuildId() != 0 && botPtr->GetGuildId() == playerPtr->GetGuildId()) {
+                    isImportant = true;
+                }
+                
+                if (isImportant) {
+                    std::string playerName = playerPtr->GetName();
+                    std::string botName = botPtr->GetName();
+                    uint64_t botGuid = data.botGuid;
+                    uint64_t playerGuid = data.playerGuid;
                     
-                    // Check Friendslist
-                    PlayerSocial* social = playerPtr->GetSocial();
-                    if (social && social->HasFriend(botGuid)) {
-                        isImportant = true;
-                    }
-                    
-                    // Check Guild
-                    if (!isImportant && playerPtr->GetGuildId() != 0 && botPtr->GetGuildId() == playerPtr->GetGuildId()) {
-                        isImportant = true;
-                    }
-                    
-                    if (isImportant) {
-                        std::string playerName = playerPtr->GetName();
-                        std::string botName = botPtr->GetName();
-                        
-                        std::string prompt = "Summarize the following recent conversation between the player (" + playerName + ") and you, the character (" + botName + "). "
-                                    "Focus on key events, promises made, or shared experiences. Keep it concise but detailed enough to remember the context next time you meet.\n\n"
-                                    "Conversation:\n" + fullConversationForSummary + "\n\n"
-                                    "Memory Summary:";
+                    std::string prompt = "Summarize the following recent conversation between the player (" + playerName + ") and you, the character (" + botName + "). "
+                                "Focus on key events, promises made, or shared experiences. Keep it concise but detailed enough to remember the context next time you meet.\n\n"
+                                "Conversation:\n" + fullConversationForSummary + "\n\n"
+                                "Memory Summary:";
+                            
+                    // Submit summary generation in a background thread
+                    // bypassOpenRouterThrottle = true for important bots
+                    std::thread([botGuid, playerGuid, playerName, botName, prompt]() {
+                        try {
+                            if (g_isShuttingDown) return;
+                            
+                            auto future = SubmitQuery(prompt, true);
+                            std::string summary = future.get();
+                            
+                            if (g_isShuttingDown) return;
+                            
+                            if (!summary.empty()) {
+                                std::string memoryId = "memory_" + std::to_string(botGuid) + "_" + std::to_string(playerGuid) + "_" + std::to_string(time(nullptr));
+                                std::string title = "Interaction with " + playerName;
+                                std::vector<std::string> keywords = {playerName, "Interaction", "Memory"};
+                                std::vector<std::string> tags = {"memory", "player_interaction"};
                                 
-                        // Submit summary generation with bypassOpenRouterThrottle = true
-                        // This returns immediately but runs in the QueryManager's thread pool
-                        SubmitQuery(prompt, true).then([botGuid, playerGuid, playerName, botName](std::future<std::string> fut) {
-                            try {
-                                if (g_isShuttingDown) return;
-                                
-                                std::string summary = fut.get();
-                                if (!summary.empty()) {
-                                    std::string memoryId = "memory_" + std::to_string(botGuid) + "_" + std::to_string(playerGuid) + "_" + std::to_string(time(nullptr));
-                                    std::string title = "Interaction with " + playerName;
-                                    std::vector<std::string> keywords = {playerName, "Interaction", "Memory"};
-                                    std::vector<std::string> tags = {"memory", "player_interaction"};
-                                    
-                                    if (g_RAGSystem) {
-                                        g_RAGSystem->SaveNewRAGEntry(memoryId, title, summary, keywords, tags);
-                                    }
-                                    
-                                    if (g_DebugEnabled) {
-                                        LOG_INFO("server.loading", "[Ollama Chat] Saved memory summary for Bot {} and Player {}", botName, playerName);
-                                    }
+                                if (g_RAGSystem) {
+                                    g_RAGSystem->SaveNewRAGEntry(memoryId, title, summary, keywords, tags);
                                 }
-                            }
-                            catch (const std::exception& ex) {
+                                
                                 if (g_DebugEnabled) {
-                                    LOG_ERROR("server.loading", "[Ollama Chat] Exception in memory summarization callback: {}", ex.what());
+                                    LOG_INFO("server.loading", "[Ollama Chat] Saved memory summary for Bot {} and Player {}", botName, playerName);
                                 }
                             }
-                        });
-                    }
+                        }
+                        catch (const std::exception& ex) {
+                            if (g_DebugEnabled) {
+                                LOG_ERROR("server.loading", "[Ollama Chat] Exception in memory summarization callback: {}", ex.what());
+                            }
+                        }
+                    }).detach();
                 }
             }
         }

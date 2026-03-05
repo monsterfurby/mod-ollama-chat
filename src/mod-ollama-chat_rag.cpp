@@ -150,7 +150,10 @@ bool OllamaRAGSystem::LoadRAGDataFromFile(const std::string& filePath)
 bool OllamaRAGSystem::SaveNewRAGEntry(const std::string& id, const std::string& title, const std::string& content, const std::vector<std::string>& keywords, const std::vector<std::string>& tags)
 {
     try {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        
         std::string filename = std::string(g_RAGDataPath) + "/" + id + ".json";
+        std::string tmpFilename = filename + ".tmp";
         
         nlohmann::json entryJson;
         entryJson["id"] = id;
@@ -162,18 +165,28 @@ bool OllamaRAGSystem::SaveNewRAGEntry(const std::string& id, const std::string& 
         nlohmann::json arrayJson = nlohmann::json::array();
         arrayJson.push_back(entryJson);
         
-        std::ofstream file(filename);
+        // Write to temp file first for crash safety
+        std::ofstream file(tmpFilename);
         if (!file.is_open()) {
-            LOG_ERROR("server.loading", "[Ollama Chat RAG] Cannot open file for writing: {}", filename);
+            LOG_ERROR("server.loading", "[Ollama Chat RAG] Cannot open file for writing: {}", tmpFilename);
             return false;
         }
         
         file << arrayJson.dump(4);
         file.close();
         
+        // Atomic rename: if this fails, we still have the old file intact
+        std::error_code ec;
+        fs::rename(tmpFilename, filename, ec);
+        if (ec) {
+            LOG_ERROR("server.loading", "[Ollama Chat RAG] Failed to rename temp file {} to {}: {}", tmpFilename, filename, ec.message());
+            // Clean up temp file on failure
+            fs::remove(tmpFilename, ec);
+            return false;
+        }
+        
         // Update in-memory structures if already initialized
         if (m_initialized) {
-            std::lock_guard<std::mutex> lock(m_mutex);
             RAGEntry newEntry;
             newEntry.id = id;
             newEntry.title = title;
@@ -188,15 +201,19 @@ bool OllamaRAGSystem::SaveNewRAGEntry(const std::string& id, const std::string& 
             m_ragEntries.push_back(newEntry);
             
             // Rebuild vocabulary (simple append - O(1) with unordered_set)
+            // Capped at g_RAGMaxVocabularySize to prevent unbounded growth
             auto tokens = TokenizeText(PreprocessText(title + " " + content));
             for (const auto& token : tokens) {
+                if (m_vocabulary.size() >= g_RAGMaxVocabularySize) break;
                 if (m_vocabSet.insert(token).second) {
                     m_vocabulary.push_back(token);
                 }
             }
             for (const auto& keyword : keywords) {
+                if (m_vocabulary.size() >= g_RAGMaxVocabularySize) break;
                 auto keywordTokens = TokenizeText(PreprocessText(keyword));
                 for (const auto& token : keywordTokens) {
+                    if (m_vocabulary.size() >= g_RAGMaxVocabularySize) break;
                     if (m_vocabSet.insert(token).second) {
                         m_vocabulary.push_back(token);
                     }

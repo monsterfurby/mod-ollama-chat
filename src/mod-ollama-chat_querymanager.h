@@ -8,6 +8,7 @@
 #include <thread>
 #include <chrono>
 #include <deque>
+#include <atomic>
 
 std::string QueryOllamaAPI(const std::string& prompt);
 
@@ -16,6 +17,7 @@ public:
     QueryManager();
     void setMaxConcurrentQueries(int maxQueries);
     std::future<std::string> submitQuery(const std::string& prompt, bool bypassOpenRouterThrottle = false);
+    void Shutdown();
 
 private:
     struct QueryTask {
@@ -30,6 +32,8 @@ private:
     std::mutex mutex_;
     std::queue<QueryTask> taskQueue;
     std::deque<std::chrono::steady_clock::time_point> openRouterCallTimestamps;
+    std::atomic<bool> shuttingDown_{false};
 };
 
 #endif // MOD_OLLAMA_CHAT_QUERYMANAGER_H
+
