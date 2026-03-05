@@ -89,6 +89,8 @@ extern uint32_t    g_PartyRandomChatterCooldown;
 extern uint32_t    g_PartyRandomChatterChance;
 extern uint32_t    g_PartyMinRandomInterval;
 extern uint32_t    g_PartyMaxRandomInterval;
+extern uint32_t    g_PartyConversationChance;
+extern std::vector<std::string> g_PartyConversationTopics;
 
 // --------------------------------------------
 // Conversation History Settings

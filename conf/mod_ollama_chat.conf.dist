@@ -350,6 +350,24 @@ OllamaChat.PartyMinRandomInterval = 120
 #     Default:     300
 OllamaChat.PartyMaxRandomInterval = 300
 
+# OllamaChat.PartyConversationChance
+#     Description: Chance (0-100) that party random chatter becomes a topic conversation instead of normal
+#                  random chatter. When triggered, a topic is picked from PartyConversationTopics and the bot
+#                  starts a conversation about it in party chat. Other bots may reply based on BotReplyChance.Party,
+#                  creating a natural multi-turn discussion that peters out over a few messages.
+#     Default:     40
+OllamaChat.PartyConversationChance = 40
+
+# OllamaChat.PartyConversationTopics
+#   Description: Pipe-separated (|) list of conversation topic prompts used when party topic conversations trigger.
+#                Each topic is an instruction appended to the RandomChatterPromptTemplate telling the bot what to
+#                start a conversation about. Topics should be phrased as directives that encourage questions or
+#                provocative statements to invite responses from other party members.
+#                Leave empty to disable party topic conversations (only normal random chatter will be used).
+#   Example:     "Start a conversation about which tank class is best.|Ask the group about their favorite dungeon."
+#   Default:     (see below for WotLK-era party conversation topics)
+OllamaChat.PartyConversationTopics = "Start a conversation with your party about which tank class is best for raids right now.|Ask your party what they think the hardest raid boss in Wrath is.|Bring up whether Death Knights are overpowered and ask your party for opinions.|Start a discussion about the best gold farming methods with your group.|Ask the group what class they think needs a buff or nerf.|Talk about Wintergrasp and ask if anyone wants to queue for the next battle.|Ask the party about their favorite dungeon to run heroics in.|Start a debate about Horde vs Alliance with your party members.|Ask what professions people in the group are running and why.|Bring up arena ratings and ask your party how the PvP season is going.|Ask the group if they have done Ulduar yet and what they thought.|Talk about reputation grinds and ask which faction people are farming.|Ask what mount everyone in the party is working toward.|Start a conversation about the best zone in Northrend.|Ask the group what spec they think is strongest for PvP right now.|Ask your party if they think Naxxramas was too easy compared to the original.|Start a discussion about whether dual spec was worth the gold.|Ask the party what their favorite Wrath dungeon is and why.|Bring up the Oculus and ask if anyone actually enjoys that place.|Ask your group what they think about the Dungeon Finder system.|Start talking about what everyone plans to do at max level.|Ask the party if anyone has tried the new badge gear.|Bring up raid lockouts and ask if people prefer 10-man or 25-man.|Ask the group about their most embarrassing wipe.|Start a conversation about which healing class is most fun to play."
+
 # OllamaChat.RandomChatterPromptTemplate
 #   Description: The template string for random bot chatter prompts.
 #   Placeholders (named): {bot_name} {bot_level} {bot_class} {bot_race} {bot_gender} {bot_role} {bot_faction} {bot_area} {bot_zone} {bot_map} {bot_personality} {bot_personality_name} {bot_background} {environment_info}

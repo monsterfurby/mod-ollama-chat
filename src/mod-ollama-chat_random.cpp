@@ -559,7 +559,7 @@ void OllamaBotRandomChatter::HandleRandomChatter()
             }
 
 
-            auto prompt = [bot, &environmentInfo]()
+            auto prompt = [bot, &environmentInfo, inGroup]()
             {
                 PlayerbotAI* botAI = PlayerbotsMgr::instance().GetPlayerbotAI(bot);
                 if (!botAI)
@@ -602,35 +602,44 @@ void OllamaBotRandomChatter::HandleRandomChatter()
                     fmt::arg("environment_info", environmentInfo)
                 );
 
-                // Randomly choose between statement variations and question variations
-                bool hasStatements = !g_RandomChatterPromptVariations.empty();
-                bool hasQuestions = !g_RandomChatterQuestionVariations.empty();
-                
-                if (hasStatements && hasQuestions)
+                // Party topic conversations: grouped bots may start a discussion topic
+                if (inGroup && !g_PartyConversationTopics.empty() && urand(0, 99) < g_PartyConversationChance)
                 {
-                    // 50/50 chance between statement and question
-                    if (urand(0, 1) == 0)
+                    uint32_t topicIdx = urand(0, g_PartyConversationTopics.size() - 1);
+                    prompt += " " + g_PartyConversationTopics[topicIdx];
+                }
+                else
+                {
+                    // Randomly choose between statement variations and question variations
+                    bool hasStatements = !g_RandomChatterPromptVariations.empty();
+                    bool hasQuestions = !g_RandomChatterQuestionVariations.empty();
+                    
+                    if (hasStatements && hasQuestions)
                     {
+                        // 50/50 chance between statement and question
+                        if (urand(0, 1) == 0)
+                        {
+                            uint32_t varIdx = urand(0, g_RandomChatterPromptVariations.size() - 1);
+                            prompt += " " + g_RandomChatterPromptVariations[varIdx];
+                        }
+                        else
+                        {
+                            uint32_t qIdx = urand(0, g_RandomChatterQuestionVariations.size() - 1);
+                            prompt += " " + g_RandomChatterQuestionVariations[qIdx];
+                        }
+                    }
+                    else if (hasStatements)
+                    {
+                        // Only statements available
                         uint32_t varIdx = urand(0, g_RandomChatterPromptVariations.size() - 1);
                         prompt += " " + g_RandomChatterPromptVariations[varIdx];
                     }
-                    else
+                    else if (hasQuestions)
                     {
+                        // Only questions available
                         uint32_t qIdx = urand(0, g_RandomChatterQuestionVariations.size() - 1);
                         prompt += " " + g_RandomChatterQuestionVariations[qIdx];
                     }
-                }
-                else if (hasStatements)
-                {
-                    // Only statements available
-                    uint32_t varIdx = urand(0, g_RandomChatterPromptVariations.size() - 1);
-                    prompt += " " + g_RandomChatterPromptVariations[varIdx];
-                }
-                else if (hasQuestions)
-                {
-                    // Only questions available
-                    uint32_t qIdx = urand(0, g_RandomChatterQuestionVariations.size() - 1);
-                    prompt += " " + g_RandomChatterQuestionVariations[qIdx];
                 }
 
                 return prompt;

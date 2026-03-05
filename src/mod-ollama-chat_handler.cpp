@@ -1450,15 +1450,14 @@ void PlayerBotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32
                 // Determine bypass throttle based on Group, Guild, and Friendslist
                 bool bypassThrottle = false;
                 
-                // Check Group
+                // Check Group (only bypass for real player senders so bot-to-bot uses BotReplyChance)
                 Group* group = player->GetGroup();
-                if (group && group->IsMember(bot->GetGUID())) {
+                if (group && group->IsMember(bot->GetGUID()) && !senderIsBot) {
                     bypassThrottle = true;
                 }
                 
-                // Check Guild (make sure the guild has at least one real player)
-                if (!bypassThrottle && player->GetGuildId() != 0 && bot->GetGuildId() == player->GetGuildId()) {
-                    // Similar logic used elsewhere: ensure guild has a real player
+                // Check Guild (only bypass for real player senders so bot-to-bot uses BotReplyChance)
+                if (!bypassThrottle && !senderIsBot && player->GetGuildId() != 0 && bot->GetGuildId() == player->GetGuildId()) {
                     bool hasRealPlayerInGuild = false;
                     for (auto const& guildPlayerItr : ObjectAccessor::GetPlayers()) {
                         Player* guildMember = guildPlayerItr.second;
@@ -1475,8 +1474,8 @@ void PlayerBotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32
                     }
                 }
                 
-                // Check Friendslist
-                if (!bypassThrottle) {
+                // Check Friendslist (only bypass for real player senders so bot-to-bot uses BotReplyChance)
+                if (!bypassThrottle && !senderIsBot) {
                     PlayerSocial* social = player->GetSocial();
                     if (social && social->HasFriend(bot->GetGUID())) {
                         bypassThrottle = true;
@@ -1561,8 +1560,8 @@ void PlayerBotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32
         // Determine bypass throttle again for the chosen bot (since it's a separate loop)
         bool bypassThrottle = false;
         Group* group = player->GetGroup();
-        if (group && group->IsMember(bot->GetGUID())) { bypassThrottle = true; }
-        if (!bypassThrottle && player->GetGuildId() != 0 && bot->GetGuildId() == player->GetGuildId()) {
+        if (group && group->IsMember(bot->GetGUID()) && !senderIsBot) { bypassThrottle = true; }
+        if (!bypassThrottle && !senderIsBot && player->GetGuildId() != 0 && bot->GetGuildId() == player->GetGuildId()) {
             bool hasRealPlayerInGuild = false;
             for (auto const& guildPlayerItr : ObjectAccessor::GetPlayers()) {
                 Player* guildMember = guildPlayerItr.second;
@@ -1573,7 +1572,7 @@ void PlayerBotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32
             }
             if (hasRealPlayerInGuild) { bypassThrottle = true; }
         }
-        if (!bypassThrottle) {
+        if (!bypassThrottle && !senderIsBot) {
             PlayerSocial* social = player->GetSocial();
             if (social && social->HasFriend(bot->GetGUID())) { bypassThrottle = true; }
         }
