@@ -1,4 +1,4 @@
-﻿#include "Log.h"
+#include "Log.h"
 #include "Language.h"
 #include "Player.h"
 #include "Chat.h"
@@ -55,8 +55,6 @@
 static bool IsBotEligibleForChatChannelLocal(Player* bot, Player* player,
                                              ChatChannelSourceLocal source, Channel* channel = nullptr, Player* receiver = nullptr);
 static std::string GenerateBotPrompt(Player* bot, std::string playerMessage, Player* player);
-
-static std::atomic<bool> g_isShuttingDown(false);
 
 void OllamaChatWorldScript::OnShutdown() {
     g_isShuttingDown = true;
@@ -338,6 +336,18 @@ void SaveBotConversationHistoryToDB()
                 }
                 
                 if (isImportant) {
+                    // If this bot doesn't have a generated background yet, queue one
+                    if (g_EnableImportantBotBackgrounds) {
+                        uint64_t bgBotGuid = data.botGuid;
+                        std::string existingBg = GetImportantBotBackground(bgBotGuid);
+                        if (existingBg.empty()) {
+                            std::thread([bgBotGuid]() {
+                                if (g_isShuttingDown) return;
+                                GenerateImportantBotBackground(bgBotGuid);
+                            }).detach();
+                        }
+                    }
+
                     std::string playerName = playerPtr->GetName();
                     std::string botName = botPtr->GetName();
                     uint64_t botGuid = data.botGuid;
@@ -2050,6 +2060,8 @@ std::string GenerateBotPrompt(Player* bot, std::string playerMessage, Player* pl
         fmt::arg("bot_map", botMapName)
     );
     
+    std::string botBackground = GetImportantBotBackground(botGuid);
+
     std::string prompt = SafeFormat(
         g_ChatPromptTemplate,
         fmt::arg("bot_name", botName),
@@ -2057,6 +2069,7 @@ std::string GenerateBotPrompt(Player* bot, std::string playerMessage, Player* pl
         fmt::arg("bot_class", botClass),
         fmt::arg("bot_personality", personalityPrompt),
         fmt::arg("bot_personality_name", personality),
+        fmt::arg("bot_background", botBackground),
         fmt::arg("player_level", playerLevel),
         fmt::arg("player_class", playerClass),
         fmt::arg("player_name", playerName),

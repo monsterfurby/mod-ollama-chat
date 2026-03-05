@@ -2,11 +2,15 @@
 #include "Config.h"
 #include "Log.h"
 #include "mod-ollama-chat_api.h"
+#include "mod-ollama-chat_personality.h"
 #include "mod-ollama-chat_rag.h"
 #include "mod-ollama-chat_sentiment.h"
 #include <fmt/core.h>
+#include <atomic>
 #include <fstream>
 #include <sstream>
+#include <thread>
+#include <set>
 
 // --------------------------------------------
 // Distance/Range Configuration
@@ -172,6 +176,21 @@ uint32_t g_RAGMaxVocabularySize = 10000;
 
 class OllamaRAGSystem;
 OllamaRAGSystem *g_RAGSystem = nullptr;
+
+// --------------------------------------------
+// Global Shutdown Flag
+// --------------------------------------------
+std::atomic<bool> g_isShuttingDown(false);
+
+// --------------------------------------------
+// Important Bot Backgrounds
+// --------------------------------------------
+bool g_EnableImportantBotBackgrounds = true;
+std::string g_ImportantBotBackgroundGenerationPrompt;
+std::vector<std::string> g_ImportantBotTraitWords;
+uint32_t g_ImportantBotTraitWordCount = 3;
+std::unordered_map<uint64_t, std::string> g_ImportantBotBackgrounds;
+std::mutex g_ImportantBotBackgroundsMutex;
 
 // --------------------------------------------
 // Blacklist: Prefixes for Commands (not chat)
@@ -825,6 +844,45 @@ void LoadOllamaChatConfig() {
            g_RandomChatterBotCommentChance, g_MaxConcurrentQueries,
            extraBlacklist);
 
+  // Important Bot Backgrounds
+  g_EnableImportantBotBackgrounds = sConfigMgr->GetOption<bool>(
+      "OllamaChat.EnableImportantBotBackgrounds", true);
+  g_ImportantBotTraitWordCount = sConfigMgr->GetOption<uint32_t>(
+      "OllamaChat.ImportantBotTraitWordCount", 3);
+  g_ImportantBotBackgroundGenerationPrompt =
+      sConfigMgr->GetOption<std::string>(
+          "OllamaChat.ImportantBotBackgroundGenerationPrompt",
+          "Generate a 1-2 paragraph personality profile for a World of Warcraft character. "
+          "This is a Wrath of the Lich King era player character, not an NPC. "
+          "Write it as a description of how this person behaves, talks, and thinks - their quirks, habits, and social tendencies. "
+          "Do NOT use the character's name in the description. Do NOT write in first person. "
+          "Write in third person as a character study.\n\n"
+          "Character details:\n"
+          "- Name: {bot_name}\n- Class: {bot_class}\n- Race: {bot_race}\n- Gender: {bot_gender}\n"
+          "- Base personality archetype: {personality_name} ({personality_prompt})\n"
+          "- MBTI type: {mbti}\n- Key traits: {trait_words}\n\n"
+          "Write a vivid, specific personality description that makes this character feel like a real person playing WoW. "
+          "Include subtle contradictions and human touches. Keep it to 1-2 short paragraphs, no bullet points.");
+
+  {
+    std::string traitWordsStr = sConfigMgr->GetOption<std::string>(
+        "OllamaChat.ImportantBotTraitWords",
+        "stubborn|curious|impulsive|loyal|sarcastic|cautious|reckless|witty|blunt|nostalgic|"
+        "cheerful|brooding|hot-headed|meticulous|laid-back|competitive|superstitious|forgetful|"
+        "dramatic|stoic|perfectionist|mischievous|absent-minded|generous|stingy|paranoid|"
+        "optimistic|pessimistic|philosophical|restless|patient|territorial|humble|boastful|"
+        "resourceful|clumsy|perceptive|oblivious|eccentric|deadpan");
+    g_ImportantBotTraitWords.clear();
+    std::istringstream iss(traitWordsStr);
+    std::string token;
+    while (std::getline(iss, token, '|')) {
+      size_t start = token.find_first_not_of(" \t\r\n\"");
+      size_t end = token.find_last_not_of(" \t\r\n\"");
+      if (start != std::string::npos && end != std::string::npos)
+        g_ImportantBotTraitWords.push_back(token.substr(start, end - start + 1));
+    }
+  }
+
   LOG_INFO("server.loading", "[Ollama Chat] Backend: {}",
            g_UseOpenRouter ? "OpenRouter" : "Ollama (local)");
 
@@ -894,6 +952,117 @@ void LoadBotConversationHistoryFromDB() {
   } while (result->NextRow());
 }
 
+void LoadImportantBotBackgroundsFromDB() {
+  std::lock_guard<std::mutex> lock(g_ImportantBotBackgroundsMutex);
+  g_ImportantBotBackgrounds.clear();
+
+  QueryResult result = CharacterDatabase.Query(
+      "SELECT bot_guid, background FROM mod_ollama_chat_important_bot_backgrounds");
+  if (!result)
+    return;
+
+  do {
+    uint64_t botGuid = (*result)[0].Get<uint64_t>();
+    std::string background = (*result)[1].Get<std::string>();
+    g_ImportantBotBackgrounds[botGuid] = background;
+  } while (result->NextRow());
+
+  LOG_INFO("server.loading",
+           "[Ollama Chat] Loaded {} important bot backgrounds from database",
+           g_ImportantBotBackgrounds.size());
+}
+
+void IdentifyAndGenerateImportantBotBackgrounds() {
+  if (!g_EnableImportantBotBackgrounds) {
+    LOG_INFO("server.loading",
+             "[Ollama Chat] Important bot backgrounds disabled, skipping");
+    return;
+  }
+
+  if (g_BotPersonalityList.empty()) {
+    LOG_INFO("server.loading",
+             "[Ollama Chat] No bot personalities loaded, skipping important bot background generation");
+    return;
+  }
+
+  std::set<uint64_t> importantBotGuids;
+
+  // Friends: find bots (GUIDs in personality table) that appear on any friend list
+  QueryResult friendResult = CharacterDatabase.Query(
+      "SELECT DISTINCT cs.friend FROM character_social cs "
+      "INNER JOIN mod_ollama_chat_personality p ON cs.friend = p.guid "
+      "WHERE cs.flags & 1");
+  if (friendResult) {
+    do {
+      importantBotGuids.insert((*friendResult)[0].Get<uint64_t>());
+    } while (friendResult->NextRow());
+  }
+
+  // Guild: find bots that share a guild with non-bot players
+  // A "non-bot player" is a guild member whose GUID is NOT in the personality table
+  QueryResult guildResult = CharacterDatabase.Query(
+      "SELECT DISTINCT gm_bot.guid FROM guild_member gm_bot "
+      "INNER JOIN mod_ollama_chat_personality p ON gm_bot.guid = p.guid "
+      "WHERE gm_bot.guildid IN ("
+      "  SELECT gm_real.guildid FROM guild_member gm_real "
+      "  LEFT JOIN mod_ollama_chat_personality p2 ON gm_real.guid = p2.guid "
+      "  WHERE p2.guid IS NULL"
+      ")");
+  if (guildResult) {
+    do {
+      importantBotGuids.insert((*guildResult)[0].Get<uint64_t>());
+    } while (guildResult->NextRow());
+  }
+
+  // Filter out bots that already have backgrounds
+  std::vector<uint64_t> botsNeedingBackgrounds;
+  {
+    std::lock_guard<std::mutex> lock(g_ImportantBotBackgroundsMutex);
+    for (uint64_t guid : importantBotGuids) {
+      if (g_ImportantBotBackgrounds.find(guid) == g_ImportantBotBackgrounds.end()) {
+        botsNeedingBackgrounds.push_back(guid);
+      }
+    }
+  }
+
+  if (botsNeedingBackgrounds.empty()) {
+    LOG_INFO("server.loading",
+             "[Ollama Chat] All {} important bots already have backgrounds",
+             importantBotGuids.size());
+    return;
+  }
+
+  LOG_INFO("server.loading",
+           "[Ollama Chat] Found {} important bots, {} need background generation",
+           importantBotGuids.size(), botsNeedingBackgrounds.size());
+
+  // Generate backgrounds in a detached background thread to avoid blocking startup
+  std::thread([botsNeedingBackgrounds]() {
+    // Small delay to let the server finish starting up and the LLM API become available
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+
+    for (size_t i = 0; i < botsNeedingBackgrounds.size(); ++i) {
+      if (g_isShuttingDown) return;
+
+      uint64_t botGuid = botsNeedingBackgrounds[i];
+      LOG_INFO("server.loading",
+               "[Ollama Chat] Generating background for important bot {} ({}/{})",
+               botGuid, i + 1, botsNeedingBackgrounds.size());
+
+      GenerateImportantBotBackground(botGuid);
+
+      // Small delay between generations to avoid flooding the LLM
+      if (i + 1 < botsNeedingBackgrounds.size()) {
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+      }
+    }
+
+    LOG_INFO("server.loading",
+             "[Ollama Chat] Finished generating backgrounds for {} important bots",
+             botsNeedingBackgrounds.size());
+  }).detach();
+}
+
 // Definition of the configuration WorldScript.
 OllamaChatConfigWorldScript::OllamaChatConfigWorldScript()
     : WorldScript("OllamaChatConfigWorldScript") {}
@@ -920,6 +1089,10 @@ void OllamaChatConfigWorldScript::OnStartup() {
                "[Ollama Chat] RAG system initialized successfully");
     }
   }
+
+  // Load existing important bot backgrounds and generate missing ones
+  LoadImportantBotBackgroundsFromDB();
+  IdentifyAndGenerateImportantBotBackgrounds();
 }
 
 void OllamaChatConfigWorldScript::OnShutdown() {

@@ -7,6 +7,7 @@
 #include <deque>
 #include <unordered_map>
 #include <mutex>
+#include <atomic>
 #include <ctime>
 #include "ScriptMgr.h"  // Ensure WorldScript is defined
 
@@ -252,6 +253,16 @@ class OllamaRAGSystem;
 extern OllamaRAGSystem* g_RAGSystem;                     // Global RAG system instance
 
 // --------------------------------------------
+// Important Bot Backgrounds
+// --------------------------------------------
+extern bool        g_EnableImportantBotBackgrounds;
+extern std::string g_ImportantBotBackgroundGenerationPrompt;
+extern std::vector<std::string> g_ImportantBotTraitWords;
+extern uint32_t    g_ImportantBotTraitWordCount;
+extern std::unordered_map<uint64_t, std::string> g_ImportantBotBackgrounds;
+extern std::mutex  g_ImportantBotBackgroundsMutex;
+
+// --------------------------------------------
 // Event Chatter: Event Type Strings
 // These control the event type string sent to eventChatter for world event prompts.
 // Values are loaded from conf (see mod_ollama_chat.conf.dist)
@@ -289,12 +300,19 @@ extern uint32_t g_TypingSimulationBaseDelay;      // Base delay in milliseconds
 extern uint32_t g_TypingSimulationDelayPerChar;   // Delay per character in milliseconds
 
 // --------------------------------------------
+// Global Shutdown Flag
+// --------------------------------------------
+extern std::atomic<bool> g_isShuttingDown;
+
+// --------------------------------------------
 // Loader Functions
 // --------------------------------------------
 void LoadOllamaChatConfig();
 void LoadBotPersonalityList();
 void LoadBotConversationHistoryFromDB();
 void LoadPersonalityTemplatesFromDB();
+void LoadImportantBotBackgroundsFromDB();
+void IdentifyAndGenerateImportantBotBackgrounds();
 
 // --------------------------------------------
 // Declaration of the configuration WorldScript.

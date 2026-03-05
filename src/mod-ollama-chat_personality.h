@@ -28,4 +28,11 @@ bool PersonalityExists(const std::string& personality);
 // Clear all personality assignments (used when RP personalities are disabled)
 void ClearAllBotPersonalities();
 
+// Generate a rich personality background for an important bot via LLM
+// Uses personality template + random MBTI + random trait words as generation ingredients
+void GenerateImportantBotBackground(uint64_t botGuid);
+
+// Returns the stored background text for an important bot, or empty string if none
+std::string GetImportantBotBackground(uint64_t botGuid);
+
 #endif // MOD_OLLAMA_CHAT_PERSONALITY_H
