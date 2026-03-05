@@ -11,8 +11,10 @@
 #include "GuildMgr.h"
 #include "ObjectAccessor.h"
 #include "World.h"
+#include "World.h"
 #include "AiFactory.h"
 #include "ChannelMgr.h"
+#include "SocialMgr.h"
 #include <sstream>
 #include <vector>
 #include <fmt/core.h>
