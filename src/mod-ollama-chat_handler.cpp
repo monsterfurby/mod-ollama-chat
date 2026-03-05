@@ -1565,7 +1565,7 @@ void PlayerBotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32
         }
         if (!bypassThrottle) {
             PlayerSocial* social = player->GetSocial();
-            if (social && social->HasFriend(bot->GetGUID().GetRawValue())) { bypassThrottle = true; }
+            if (social && social->HasFriend(bot->GetGUID())) { bypassThrottle = true; }
         }
 
         std::thread([botGuid, senderGuid, prompt, bypassThrottle, sourceLocal, channelId = (channel ? channel->GetChannelId() : 0), channelName = (channel ? channel->GetName() : ""), msg]() {
