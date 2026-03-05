@@ -33,6 +33,7 @@
 OllamaBotRandomChatter::OllamaBotRandomChatter() : WorldScript("OllamaBotRandomChatter") {}
 
 std::unordered_map<uint64_t, time_t> nextRandomChatTime;
+static std::unordered_map<uint32_t, time_t> groupRandomChatCooldown;
 
 void OllamaBotRandomChatter::OnUpdate(uint32 diff)
 {
@@ -91,6 +92,7 @@ void OllamaBotRandomChatter::HandleRandomChatter()
     }
 
     std::unordered_set<uint64_t> processedBotsThisTick;
+    std::unordered_map<uint32_t, uint32_t> botsChatteredPerGroup;
 
     for (auto const& itr : allPlayers)
     {
@@ -140,17 +142,36 @@ void OllamaBotRandomChatter::HandleRandomChatter()
         processedBotsThisTick.insert(guid);
 
             time_t now = time(nullptr);
+            bool inGroup = bot->GetGroup() != nullptr;
+
+            if (inGroup && g_PartyRandomChatterCooldown > 0)
+            {
+                uint32_t groupId = bot->GetGroup()->GetId();
+                if (groupRandomChatCooldown.count(groupId) && now < groupRandomChatCooldown[groupId])
+                    continue;
+            }
+
+            if (inGroup && g_RandomChatterMaxBotsPerPlayer > 0)
+            {
+                uint32_t groupId = bot->GetGroup()->GetId();
+                if (botsChatteredPerGroup[groupId] >= g_RandomChatterMaxBotsPerPlayer)
+                    continue;
+            }
+
+            uint32_t minInterval = inGroup ? g_PartyMinRandomInterval : g_MinRandomInterval;
+            uint32_t maxInterval = inGroup ? g_PartyMaxRandomInterval : g_MaxRandomInterval;
 
             if (nextRandomChatTime.find(guid) == nextRandomChatTime.end())
             {
-                nextRandomChatTime[guid] = now + urand(g_MinRandomInterval, g_MaxRandomInterval);
+                nextRandomChatTime[guid] = now + urand(minInterval, maxInterval);
                 continue;
             }
 
             if (now < nextRandomChatTime[guid])
                 continue;
 
-            if(urand(0, 99) >= g_RandomChatterBotCommentChance)
+            uint32_t chatterChance = inGroup ? g_PartyRandomChatterChance : g_RandomChatterBotCommentChance;
+            if(urand(0, 99) >= chatterChance)
                 continue;
 
             std::string environmentInfo;
@@ -538,7 +559,7 @@ void OllamaBotRandomChatter::HandleRandomChatter()
             }
 
 
-            auto prompt = [bot, &environmentInfo]()
+            auto prompt = [bot, &environmentInfo, inGroup]()
             {
                 PlayerbotAI* botAI = PlayerbotsMgr::instance().GetPlayerbotAI(bot);
                 if (!botAI)
@@ -581,35 +602,44 @@ void OllamaBotRandomChatter::HandleRandomChatter()
                     fmt::arg("environment_info", environmentInfo)
                 );
 
-                // Randomly choose between statement variations and question variations
-                bool hasStatements = !g_RandomChatterPromptVariations.empty();
-                bool hasQuestions = !g_RandomChatterQuestionVariations.empty();
-                
-                if (hasStatements && hasQuestions)
+                // Party topic conversations: grouped bots may start a discussion topic
+                if (inGroup && !g_PartyConversationTopics.empty() && urand(0, 99) < g_PartyConversationChance)
                 {
-                    // 50/50 chance between statement and question
-                    if (urand(0, 1) == 0)
+                    uint32_t topicIdx = urand(0, g_PartyConversationTopics.size() - 1);
+                    prompt += " " + g_PartyConversationTopics[topicIdx];
+                }
+                else
+                {
+                    // Randomly choose between statement variations and question variations
+                    bool hasStatements = !g_RandomChatterPromptVariations.empty();
+                    bool hasQuestions = !g_RandomChatterQuestionVariations.empty();
+                    
+                    if (hasStatements && hasQuestions)
                     {
+                        // 50/50 chance between statement and question
+                        if (urand(0, 1) == 0)
+                        {
+                            uint32_t varIdx = urand(0, g_RandomChatterPromptVariations.size() - 1);
+                            prompt += " " + g_RandomChatterPromptVariations[varIdx];
+                        }
+                        else
+                        {
+                            uint32_t qIdx = urand(0, g_RandomChatterQuestionVariations.size() - 1);
+                            prompt += " " + g_RandomChatterQuestionVariations[qIdx];
+                        }
+                    }
+                    else if (hasStatements)
+                    {
+                        // Only statements available
                         uint32_t varIdx = urand(0, g_RandomChatterPromptVariations.size() - 1);
                         prompt += " " + g_RandomChatterPromptVariations[varIdx];
                     }
-                    else
+                    else if (hasQuestions)
                     {
+                        // Only questions available
                         uint32_t qIdx = urand(0, g_RandomChatterQuestionVariations.size() - 1);
                         prompt += " " + g_RandomChatterQuestionVariations[qIdx];
                     }
-                }
-                else if (hasStatements)
-                {
-                    // Only statements available
-                    uint32_t varIdx = urand(0, g_RandomChatterPromptVariations.size() - 1);
-                    prompt += " " + g_RandomChatterPromptVariations[varIdx];
-                }
-                else if (hasQuestions)
-                {
-                    // Only questions available
-                    uint32_t qIdx = urand(0, g_RandomChatterQuestionVariations.size() - 1);
-                    prompt += " " + g_RandomChatterQuestionVariations[qIdx];
                 }
 
                 return prompt;
@@ -700,7 +730,7 @@ void OllamaBotRandomChatter::HandleRandomChatter()
             {
                 if (g_DebugEnabled)
                     LOG_INFO("server.loading", "[Ollama Chat] Bot {} skipping random chatter (no real player can hear the message)", bot->GetName());
-                nextRandomChatTime[guid] = now + urand(g_MinRandomInterval, g_MaxRandomInterval);
+                nextRandomChatTime[guid] = now + urand(minInterval, maxInterval);
                 continue;
             }
 
@@ -941,7 +971,14 @@ void OllamaBotRandomChatter::HandleRandomChatter()
                 }
             }).detach();
 
+            if (inGroup)
+            {
+                uint32_t groupId = bot->GetGroup()->GetId();
+                if (g_PartyRandomChatterCooldown > 0)
+                    groupRandomChatCooldown[groupId] = now + g_PartyRandomChatterCooldown;
+                botsChatteredPerGroup[groupId]++;
+            }
 
-            nextRandomChatTime[guid] = now + urand(g_MinRandomInterval, g_MaxRandomInterval);
+            nextRandomChatTime[guid] = now + urand(minInterval, maxInterval);
     }
 }
