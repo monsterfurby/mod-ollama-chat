@@ -328,7 +328,7 @@ void SaveBotConversationHistoryToDB()
                 
                 // Check Friendslist
                 PlayerSocial* social = playerPtr->GetSocial();
-                if (social && social->HasFriend(data.botGuid)) {
+                if (social && social->HasFriend(ObjectGuid(data.botGuid))) {
                     isImportant = true;
                 }
                 
